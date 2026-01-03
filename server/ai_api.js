@@ -1,25 +1,8 @@
 import { GoogleGenAI } from '@google/genai';
 
-import { Pool } from 'pg';
-
-const pool = new Pool({
-  host: 'localhost',
-  port: 5432,
-  database: 'customer_support',
-  user: 'postgres',
-  password: 'postgres',
+const genai = new GoogleGenAI({
+  apiKey: process.env.GEMINI_API_KEY,
 });
-
-const {
-  rows: [customer],
-} = await pool.query('SELECT * FROM customers WHERE id = $1', [
-  'e840c2d4-a915-447f-a811-043d79a5162e',
-]);
-
-const { rows: purchases } = await pool.query(
-  'SELECT * FROM purchases WHERE "customer_id" = $1',
-  [customer.id]
-);
 
 function getCustomerAge(birthDate) {
   const today = new Date();
@@ -45,18 +28,27 @@ function getDaysSincePurchase(purchaseDate) {
   return daysDiff;
 }
 
-const genai = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY,
-});
+function getPurchasesString(purchases) {
+  return purchases
+    .map((purchase) => {
+      return `
+- Produto: ${purchase.product}
+    - Data da Compra: ${purchase.date.toISOString().split('T')[0]}
+    - Dias desde a compra: ${getDaysSincePurchase(purchase.date)} dias
+    - Status: ${purchase.status}
+    - Valor: R$ ${purchase.price}`;
+    })
+    .join('\n');
+}
 
-const systemInstruction = `
+const getSystemInstruction = (customer, purchases) => `
 Você é um atendende de uma empresa de e-commerce. Você está conversando com os clientes que podem ter dúvidas sobre suas compras recentes no site. Responda os clientes de forma amigável.
 
 Não informe nada a respeito de você para o cliente, diga apenas que você é um atendente virtual.
 
 Caso o cliente pergunte sobre algo não relacionado à empresa ou aos nossos serviços, indique que não pode ajudá-lo com isso. Caso o cliente pergunte sobre algo relacionado à empresa mas que não é explicitamente sobre suas compras passadas, direcione ele ao atendimento humano pelo número (11) 12345-6789.
 
-Altere o tom das suas respostas de acordo com a idade do cliente. Se o cliente for jovem, dialogue de forma mais informal e descontraída. Se o cliente for mais velho, trate-o com mais formalidade e respeito.
+Altere o tom das suas respostas de acordo com a idade do cliente. Se o cliente for jovem, dialogue de forma mais informal e descontraída. Se o cliente for mais velho, trate-o com mais formalidade e respeito. Se possível chame o cliente pelo nome.
 
 Se o cliente reclamar sobre o atraso nas suas compras, verifique se a compra excedeu o SLA de entrega de acordo com a região do cliente:
 Norte: 10 dias úteis
@@ -79,26 +71,25 @@ Ao final da interação, caso o cliente tenha pedido alguma informação, ofere�
 </CLIENTE>
 
 <COMPRAS>
-${purchases
-  .map((purchase) => {
-    return `
-- Produto: ${purchase.product}
-    - Data da Compra: ${purchase.date.toISOString().split('T')[0]}
-    - Dias desde a compra: ${getDaysSincePurchase(purchase.date)} dias
-    - Status: ${purchase.status}
-    - Valor: R$ ${purchase.price}`;
-  })
-  .join('\n')}
+${getPurchasesString(purchases)}
 </COMPRAS>
 `;
 
-const response = await genai.models.generateContent({
-  model: 'gemini-2.0-flash',
-  config: {
-    systemInstruction,
-  },
-  contents:
-    'Olá, minha última compra do Refinado Concreto Salsicha não chegou ainda. O que está acontecendo?',
-});
+async function getAIResponse(customerInfo, userMessage) {
+  const systemInstruction = getSystemInstruction(
+    customerInfo.customer,
+    customerInfo.purchases
+  );
 
-console.log(response.candidates[0].content.parts[0].text);
+  const response = await genai.models.generateContent({
+    model: 'gemini-2.0-flash',
+    config: {
+      systemInstruction,
+    },
+    contents: userMessage,
+  });
+
+  return response.candidates[0].content.parts[0].text;
+}
+
+export { getAIResponse };
