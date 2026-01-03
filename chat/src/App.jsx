@@ -1,14 +1,16 @@
-import { useState } from "react";
-import "./App.css";
-import UserPromptInput from "./components/UserPromptInput/UserPromptInput";
-import Chat from "./components/Chat/Chat";
-import getResponse from "./ai_api";
+import { useState } from 'react';
+import getResponse from './ai_api';
+import './App.css';
+import Chat from './components/Chat/Chat';
+import Loginbox from './components/LoginBox/LoginBox';
+import UserPromptInput from './components/UserPromptInput/UserPromptInput';
 
 function App() {
   const [conversationStarted, setConversationStarted] = useState(false);
   const [messages, setMessages] = useState([]);
   const [isThinking, setIsThinking] = useState(false);
   const [canSendNewMessage, setCanSendNewMessage] = useState(true);
+  const [email, setEmail] = useState(null);
 
   async function submitPrompt(userPrompt) {
     setCanSendNewMessage(false);
@@ -16,17 +18,25 @@ function App() {
       setConversationStarted(true);
     }
 
-    setMessages((prevMessages) => [...prevMessages, { type: "user", text: userPrompt }]);
+    setMessages((prevMessages) => [
+      ...prevMessages,
+      { type: 'user', text: userPrompt },
+    ]);
     setIsThinking(true);
 
-    const aiResponse = await getResponse(userPrompt);
+    const aiResponse = await getResponse(email, userPrompt);
 
     setIsThinking(false);
-    setMessages((prevMessages) => [...prevMessages, { type: "ai", text: aiResponse }]);
+    setMessages((prevMessages) => [
+      ...prevMessages,
+      { type: 'ai', text: aiResponse },
+    ]);
   }
 
   return (
     <>
+      {email === null ? <Loginbox setEmail={setEmail} /> : null}
+
       <Chat
         messages={messages}
         isThinking={isThinking}
